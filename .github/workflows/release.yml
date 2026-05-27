@@ -1,0 +1,123 @@
+name: Build fork .deb release
+
+on:
+  push:
+    tags:
+      - 'v*-aa1ex.*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build .deb for linux/amd64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release/build branch at tag
+        uses: actions/checkout@v6
+
+      - name: Read UPSTREAM_VERSION
+        id: upstream
+        run: |
+          {
+            echo "tag=$(sed -n '1p' UPSTREAM_VERSION)"
+            echo "sha=$(sed -n '2p' UPSTREAM_VERSION)"
+            echo "fork_version=$(cat FORK_VERSION)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Compute full release version
+        id: ver
+        run: |
+          UPSTREAM_TAG="${{ steps.upstream.outputs.tag }}"
+          UPSTREAM_BASE="${UPSTREAM_TAG#v}"
+          FORK_VERSION="${{ steps.upstream.outputs.fork_version }}"
+          FULL_VERSION="${UPSTREAM_BASE}-aa1ex.${FORK_VERSION}"
+          echo "full=${FULL_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "deb=${FULL_VERSION}-1" >> "$GITHUB_OUTPUT"
+
+      - name: Apply patches to upstream source
+        run: ./scripts/apply-patches.sh "${RUNNER_TEMP}/crowdsec-src"
+
+      - name: Set up Go from upstream go.mod
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: ${{ runner.temp }}/crowdsec-src/go.mod
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential libre2-dev debhelper dpkg-dev devscripts
+
+      - name: Build binaries
+        working-directory: ${{ runner.temp }}/crowdsec-src
+        run: |
+          make build BUILD_STATIC=1 \
+              BUILD_VERSION="${{ steps.ver.outputs.full }}-linux" \
+              BUILD_TAG="aa1ex"
+
+      - name: Smoke check binary version
+        working-directory: ${{ runner.temp }}/crowdsec-src
+        run: |
+          ./cmd/crowdsec/crowdsec --version 2>&1 | tee version-out.txt
+          if ! grep -q "${{ steps.ver.outputs.full }}" version-out.txt; then
+              echo "ERROR: binary version does not contain ${{ steps.ver.outputs.full }}"
+              exit 1
+          fi
+
+      - name: Configure Debian changelog with fork version
+        working-directory: ${{ runner.temp }}/crowdsec-src
+        env:
+          DEBEMAIL: aa1ex-fork@local
+          DEBFULLNAME: "aa1ex fork CI"
+        run: |
+          dch --controlmaint -v "${{ steps.ver.outputs.deb }}" \
+              --distribution stable --force-distribution \
+              --changelog build/debian/changelog \
+              "Fork release ${{ steps.ver.outputs.full }} based on upstream ${{ steps.upstream.outputs.tag }}"
+
+      - name: Symlink debian/ for dpkg-buildpackage
+        working-directory: ${{ runner.temp }}/crowdsec-src
+        run: ln -sf build/debian debian
+
+      - name: Build .deb package
+        working-directory: ${{ runner.temp }}/crowdsec-src
+        run: dpkg-buildpackage -b -uc -us
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts"
+          mv "${RUNNER_TEMP}/crowdsec_${{ steps.ver.outputs.deb }}_amd64.deb" "${GITHUB_WORKSPACE}/artifacts/"
+          cd "${GITHUB_WORKSPACE}/artifacts"
+          sha256sum *.deb > SHA256SUMS
+
+      - name: Inspect .deb metadata
+        run: |
+          cd "${GITHUB_WORKSPACE}/artifacts"
+          dpkg-deb --info *.deb
+          echo "---"
+          dpkg-deb --contents *.deb | head -30
+
+      - name: Verify .deb contains expected files
+        run: |
+          cd "${GITHUB_WORKSPACE}/artifacts"
+          contents=$(dpkg-deb --contents *.deb)
+          for expected in /usr/bin/crowdsec /usr/bin/cscli /lib/systemd/system/crowdsec.service; do
+              if ! echo "$contents" | grep -q "$expected"; then
+                  echo "ERROR: missing expected file $expected in .deb"
+                  exit 1
+              fi
+          done
+
+      - name: Create GitHub Release and upload artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "Fork release ${{ steps.ver.outputs.full }} based on upstream ${{ steps.upstream.outputs.tag }} (commit \`${{ steps.upstream.outputs.sha }}\`). Drop-in compatible .deb for linux/amd64." \
+              "${GITHUB_WORKSPACE}/artifacts/"*
