@@ -49,10 +49,10 @@ echo "==> Build .deb"
 dpkg-buildpackage -b -uc -us
 
 echo "==> Collect artifacts"
-mv ../crowdsec_${FULL_VERSION}-1_amd64.deb "$OUTPUT_DIR/"
+mv "../crowdsec_${FULL_VERSION}-1_amd64.deb" "$OUTPUT_DIR/"
 # Also capture any other generated files for inspection
-mv ../crowdsec_${FULL_VERSION}-1_amd64.changes "$OUTPUT_DIR/" 2>/dev/null || true
-mv ../crowdsec_${FULL_VERSION}-1_amd64.buildinfo "$OUTPUT_DIR/" 2>/dev/null || true
+mv "../crowdsec_${FULL_VERSION}-1_amd64.changes" "$OUTPUT_DIR/" 2>/dev/null || true
+mv "../crowdsec_${FULL_VERSION}-1_amd64.buildinfo" "$OUTPUT_DIR/" 2>/dev/null || true
 
 echo "==> Smoke check binary version"
 BUILT_VERSION=$("$WORK_DIR/cmd/crowdsec/crowdsec" --version 2>&1 | head -1 || true)
