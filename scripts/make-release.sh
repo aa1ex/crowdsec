@@ -33,17 +33,17 @@ echo "==> Apply patches"
 "$HARNESS_DIR/scripts/apply-patches.sh" "$WORK_DIR"
 
 echo "==> Build binaries (BUILD_STATIC=1)"
-make -C "$WORK_DIR" build BUILD_STATIC=1 BUILD_VERSION="${FULL_VERSION}-linux" BUILD_TAG="aa1ex"
+make -C "$WORK_DIR" build BUILD_STATIC=1 BUILD_VERSION="v${FULL_VERSION}-linux" BUILD_TAG="aa1ex"
+
+echo "==> Symlink debian/ -> build/debian/ for dpkg-buildpackage"
+cd "$WORK_DIR"
+ln -sf build/debian debian
 
 echo "==> Set Debian package version"
-cd "$WORK_DIR"
 DEBEMAIL="aa1ex-fork@local" DEBFULLNAME="aa1ex fork" \
     dch --controlmaint -v "${FULL_VERSION}-1" --distribution stable --force-distribution \
     --changelog build/debian/changelog \
     "Fork release ${FULL_VERSION} based on upstream ${UPSTREAM_TAG}"
-
-echo "==> Symlink debian/ -> build/debian/ for dpkg-buildpackage"
-ln -sf build/debian debian
 
 echo "==> Build .deb"
 dpkg-buildpackage -b -uc -us

@@ -56,7 +56,7 @@ jobs:
         working-directory: ${{ runner.temp }}/crowdsec-src
         run: |
           make build BUILD_STATIC=1 \
-              BUILD_VERSION="${{ steps.ver.outputs.full }}-linux" \
+              BUILD_VERSION="v${{ steps.ver.outputs.full }}-linux" \
               BUILD_TAG="aa1ex"
 
       - name: Smoke check binary version
@@ -68,6 +68,10 @@ jobs:
               exit 1
           fi
 
+      - name: Symlink debian/ for dpkg-buildpackage
+        working-directory: ${{ runner.temp }}/crowdsec-src
+        run: ln -sf build/debian debian
+
       - name: Configure Debian changelog with fork version
         working-directory: ${{ runner.temp }}/crowdsec-src
         env:
@@ -78,10 +82,6 @@ jobs:
               --distribution stable --force-distribution \
               --changelog build/debian/changelog \
               "Fork release ${{ steps.ver.outputs.full }} based on upstream ${{ steps.upstream.outputs.tag }}"
-
-      - name: Symlink debian/ for dpkg-buildpackage
-        working-directory: ${{ runner.temp }}/crowdsec-src
-        run: ln -sf build/debian debian
 
       - name: Build .deb package
         working-directory: ${{ runner.temp }}/crowdsec-src
