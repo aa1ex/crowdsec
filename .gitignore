@@ -1,0 +1,10 @@
+# Local working dirs (used by scripts)
+/build-work/
+/build-output/
+
+# Editor cruft
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
